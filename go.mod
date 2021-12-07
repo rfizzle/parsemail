@@ -1,6 +1,6 @@
-module github.com/on2itsecurity/parsemail
+module github.com/rfizzle/parsemail
 
-go 1.12
+go 1.16
 
 require (
 	golang.org/x/net v0.0.0-20200927032502-5d4f70055728
