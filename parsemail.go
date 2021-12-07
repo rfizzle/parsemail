@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"math/rand"
 	"mime"
 	"mime/multipart"
 	"mime/quotedprintable"
@@ -379,14 +380,21 @@ func decodeEmbeddedFile(part *multipart.Part) (ef EmbeddedFile, err error) {
 
 	ef.CID = strings.Trim(cid, "<>")
 	if ef.CID == "" {
+		// Try to get name from Content Disposition using core mime package
 		_, param, err := mime.ParseMediaType(part.Header.Get("Content-Disposition"))
-		if err != nil {
-			return ef, err
+		if err == nil {
+			if _, ok := param["filename"]; ok {
+				ef.CID = param["filename"]
+			}
 		}
 
-		if _, ok := param["filename"]; ok {
-			ef.CID = param["filename"]
+		// Fallback to try to get name from Content Type
+		if ef.CID == "" {
+			if val := getFilenameFromContentType(part); val != "" {
+				ef.CID = val
+			}
 		}
+
 	}
 
 	ef.Data = decoded
@@ -396,6 +404,14 @@ func decodeEmbeddedFile(part *multipart.Part) (ef EmbeddedFile, err error) {
 		contentType = strings.SplitN(contentType, ";", 2)[0]
 	}
 	ef.ContentType = contentType
+
+	// If file name is empty, generate random name and add extension if possible
+	if ef.CID == "" {
+		ef.CID = fmt.Sprintf("attachment_%s", randomString(16))
+		if extensions, err := mime.ExtensionsByType(contentType); err == nil && len(extensions) > 0 {
+			ef.CID = fmt.Sprintf("%s.%s", ef.CID, extensions[0])
+		}
+	}
 
 	return
 }
@@ -491,9 +507,34 @@ func decodeContent(content io.Reader, encoding string) (io.Reader, error) {
 	}
 }
 
+func getFilenameFromContentType(part *multipart.Part) string {
+	if val := part.Header.Get("Content-Type"); val != "" {
+		_, mParams, err := mime.ParseMediaType(val)
+		if err != nil {
+			return ""
+		}
+
+		if name, ok := mParams["name"]; ok {
+			return name
+		}
+	}
+	return ""
+}
+
 type headerParser struct {
 	header *mail.Header
 	err    error
+}
+
+var letters = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+
+func randomString(n int) string {
+	goodRand := rand.New(rand.NewSource(time.Now().UnixNano()))
+	b := make([]rune, n)
+	for i := range b {
+		b[i] = letters[goodRand.Intn(len(letters))]
+	}
+	return string(b)
 }
 
 // This is needed because the default address parser only understands utf-8, iso-8859-1, and us-ascii.
